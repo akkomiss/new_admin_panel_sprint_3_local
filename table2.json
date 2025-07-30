@@ -1,0 +1,8 @@
+{
+    "mappings": {
+        "properties": {
+            "text_field": {"type": "text"},
+            "number": {"type": "long"}
+        }
+    }
+}
