@@ -1,5 +1,18 @@
 version: '3'
 services:
+  theatre-db:
+    image: postgres:16
+    ports:
+      - "5432:5432"
+    env_file:
+      - ./.env
+    volumes:
+      - ./database_dump.sql:/docker-entrypoint-initdb.d/init.sql
+  redis:  
+    image: redis:latest
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
   elasticsearch:
     image: elasticsearch:8.17.1
     ports:
