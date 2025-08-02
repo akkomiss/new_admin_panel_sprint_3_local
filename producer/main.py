@@ -112,8 +112,8 @@ def main():
             enrich_flag = f"enrich_ready:{queue_key}"
 
             while True:
-                processed = extractor.extract(r, queue_key)
-                if not processed:
+                rows = extractor.extract(r, queue_key)
+                if not rows:
                     print(f"Всё обработано для {config['table']}\n")
                     # Только для film_work выставляем initial_completed!
                     if table == 'film_work' and not is_initial_completed:
@@ -128,6 +128,12 @@ def main():
                 while r.get(enrich_flag):
                     time.sleep(0.5)
                 print(f"Producer: Enricher обработал пачку из {queue_key}, продолжаем.")
+
+                # Обновляем состояние: берём последнюю (modified, id) из пачки
+                last_modified, last_id = rows[-1][1], str(rows[-1][0])
+                state.set_state('last_updated_at', str(last_modified))
+                state.set_state('last_id', last_id)
+                print(f"Состояние обновлено: {last_modified}, {last_id}")
 
 if __name__ == '__main__':
     main()

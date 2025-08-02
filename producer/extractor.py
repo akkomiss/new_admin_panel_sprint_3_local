@@ -66,10 +66,8 @@ class PostgresExtractor:
         # Пишем id в Redis (set или очередь, по ситуации)
         for row in rows:
             redis_conn.sadd(redis_queue_name, str(row[0]))  # uuid в строку
-
-        # Обновляем состояние: берём последнюю (modified, id) из пачки
-        last_modified, last_id = rows[-1][1], str(rows[-1][0])
-        self.state.set_state('last_updated_at', str(last_modified))
-        self.state.set_state('last_id', last_id)
-        print(f'Обработано {len(rows)} записей из {self.table}, состояние обновлено: {last_modified}, {last_id}')
-        return True
+        
+        print(f'Обработано {len(rows)} записей из {self.table}')
+        return rows
+  
+        
