@@ -13,9 +13,9 @@ from dataclasses import astuple, fields
 from functools import wraps
 
 from state import State, RedisStorage
-from models import film_work, genre, person, genre_film_work, person_film_work
+from extractor import PostgresExtractor
 
-def backoff(start_sleep_time=0.1, factor=2, border_sleep_time=10, exceptions=(Exception,)):
+def backoff(start_sleep_time=0.1, factor=2, border_sleep_time=10, exceptions=(Exception,), service_name="unknown_service"):
     def func_wrapper(func):
         @wraps(func)
         def inner(*args, **kwargs):
@@ -28,17 +28,21 @@ def backoff(start_sleep_time=0.1, factor=2, border_sleep_time=10, exceptions=(Ex
                     # Jitter: добавляем случайное слагаемое от 0 до t
                     jitter = random.uniform(0, t)
                     sleep_time = t + jitter
-                    print(f'Ошибка: {e}. Повтор через {sleep_time:.2f} сек...')
+                    print(f'Ошибка от сервиса {service_name}: {e}. Повтор через {sleep_time:.2f} сек...')
                     time.sleep(sleep_time)
                     n += 1
                     t = min(start_sleep_time * (factor ** n), border_sleep_time)
         return inner
     return func_wrapper
 
-@backoff(start_sleep_time=1, factor=2, border_sleep_time=8, exceptions=(OperationalError,))
+@backoff(start_sleep_time=1, factor=2, border_sleep_time=8, exceptions=(OperationalError,), service_name="PostgreSQL")
 def connect_pg(**kwargs):
     kwargs.setdefault('cursor_factory', ClientCursor)
     return psycopg.connect(**kwargs)
+
+@backoff(start_sleep_time=1, factor=2, border_sleep_time=8, exceptions=(OperationalError,), service_name="Redis")
+def connect_redis(**kwargs):
+    return Redis(**kwargs)
 
 @contextmanager
 def pg_conn_context(**kwargs):
@@ -48,8 +52,13 @@ def pg_conn_context(**kwargs):
     finally:
         conn.close()
 
-def extract_data():
-    pass
+@contextmanager
+def redis_conn_context(**kwargs):
+    conn = connect_redis(**kwargs)
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 def main():
     # Загружаем переменные окружения из .env
@@ -60,27 +69,52 @@ def main():
         'dbname': os.getenv('POSTGRES_DB'),
         'user': os.getenv('POSTGRES_USER'),
         'password': os.getenv('POSTGRES_PASSWORD'),
-        'host': os.getenv('POSTGRES_HOST'),
-        'port': os.getenv('POSTGRES_PORT')
+        'host': os.getenv('SQL_HOST'),
+        'port': os.getenv('SQL_PORT')
     }    
 
-    with pg_conn_context(**dsl) as pg_conn:
-        pass
+     # Список конфигураций для каждой таблицы:
+    configs = [
+        {
+            'table': 'film_work',
+            'state_key': 'film_work_producer',
+            'queue_name': 'film_work_ids'
+        },
+        {
+            'table': 'person',
+            'state_key': 'person_producer',
+            'queue_name': 'person_ids'
+        },
+        {
+            'table': 'genre',
+            'state_key': 'genre_producer',
+            'queue_name': 'genre_ids'
+        }
+    ]
 
-    # Создаём подключение к Redis (localhost по умолчанию)
-    redis_adapter = Redis(host="localhost", port=6379, db=0)
+    with redis_conn_context(host='localhost', port=6379, db=0) as r, pg_conn_context(**dsl) as pg_conn:
+        for config in configs:
+            storage = RedisStorage(r, redis_key=config['state_key'])
+            state = State(storage)
+            extractor = PostgresExtractor(pg_conn, state, table=config['table'], batch_size=100)
+            print(f"Обрабатываем таблицу: {config['table']}")
+            queue_key = config['queue_name']
+            enrich_flag = f"enrich_ready:{queue_key}"
 
-    # Экземпляр хранилища
-    storage = RedisStorage(redis_adapter, redis_key="etl_state")  # ключ можешь назвать как хочешь
+            while True:
+                processed = extractor.extract(r, queue_key)
+                if not processed:
+                    print(f"Всё обработано для {config['table']}\n")
+                    break
 
-    # Экземпляр State
-    state = State(storage)
+                # Ставим флаг "пачка готова"
+                r.set(enrich_flag, 1)
 
-    state.set_state("test_key", "2024-08-01T10:00:00.000000")
-    print(state.get_state("test_key"))  # 123
-
-    print(state.get_state("not_exists"))  # None
-
+                # Ждём, пока Enricher снимет флаг
+                print(f"Producer: ждёт, когда Enricher обработает очередь {queue_key}...")
+                while r.get(enrich_flag):
+                    time.sleep(0.5)
+                print(f"Producer: Enricher обработал пачку из {queue_key}, продолжаем.")
 
 if __name__ == '__main__':
     main()
