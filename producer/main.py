@@ -2,6 +2,7 @@ import psycopg
 import logging
 import os
 import random
+import time
 
 from psycopg import OperationalError, ClientCursor
 from dotenv import load_dotenv
