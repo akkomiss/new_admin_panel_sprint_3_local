@@ -8,12 +8,10 @@ from psycopg import OperationalError, ClientCursor
 from dotenv import load_dotenv
 from redis import Redis
 from contextlib import contextmanager
-from typing import Generator, List, Optional, Any, Type
-from dataclasses import astuple, fields
 from functools import wraps
 
 from state import State, RedisStorage
-from producer import PostgresProducer
+from enricher import PostgresEnricher
 
 def backoff(start_sleep_time=0.1, factor=2, border_sleep_time=10, exceptions=(Exception,), service_name="unknown_service"):
     def func_wrapper(func):
@@ -76,19 +74,16 @@ def main():
      # Список конфигураций для каждой таблицы:
     configs = [
         {
-            'table': 'film_work',
-            'state_key': 'film_work_producer',
-            'queue_name': 'film_work_ids'
+            'queue_name': 'person_ids',
+            'state_key': 'person_enricher_state',
+            'relation_field': 'person_id',
+            'target_queue': 'film_work_ids'
         },
         {
-            'table': 'person',
-            'state_key': 'person_producer',
-            'queue_name': 'person_ids'
-        },
-        {
-            'table': 'genre',
-            'state_key': 'genre_producer',
-            'queue_name': 'genre_ids'
+            'queue_name': 'genre_ids',
+            'state_key': 'genre_enricher_state',
+            'relation_field': 'genre_id',
+            'target_queue': 'film_work_ids'
         }
     ]
 
@@ -96,44 +91,22 @@ def main():
         for config in configs:
             storage = RedisStorage(r, redis_key=config['state_key'])
             state = State(storage)
-
-            #Проверяем, завершён ли initial для этой таблицы
-            is_initial_completed = state.get_state('initial_completed')
-            table = config['table']
-
-            # Если initial ещё НЕ завершён и НЕ таблица film_work — пропустить, иначе сразу работать.
-            if not is_initial_completed and table != 'film_work':
-                print(f"Пропускаем таблицу {table} — ждем завершения initial для film_work.")
-                continue
-
-            extractor = PostgresProducer(pg_conn, state, table=config['table'], batch_size=100)
-            print(f"Обрабатываем таблицу: {config['table']}")
-            queue_key = config['queue_name']
-            enrich_flag = f"enrich_ready:{queue_key}"
+            enricher = PostgresEnricher(pg_conn, state, config['queue_name'], config['target_queue'])
+            enrich_flag = f"enrich_ready:{config['queue_name']}"
 
             while True:
-                rows = extractor.extract(r, queue_key)
-                if not rows:
-                    print(f"Всё обработано для {config['table']}\n")
-                    # Только для film_work выставляем initial_completed!
-                    if table == 'film_work' and not is_initial_completed:
-                        state.set_state('initial_completed', True)
+                print(f"Enricher ждёт флаг для {config['queue_name']}...")
+                while not r.get(enrich_flag):
+                    time.sleep(0.5)
+
+                processed = enricher.fetch_and_enrich(r)
+                if not processed:
+                    print(f"Enricher: очередь {config['queue_name']} пуста, завершаем обработку.")
+                    r.delete(enrich_flag)
                     break
 
-                # Ставим флаг "пачка готова"
-                r.set(enrich_flag, 1)
-
-                # Ждём, пока Enricher снимет флаг
-                print(f"Producer: ждёт, когда Enricher обработает очередь {queue_key}...")
-                while r.get(enrich_flag):
-                    time.sleep(0.5)
-                print(f"Producer: Enricher обработал пачку из {queue_key}, продолжаем.")
-
-                # Обновляем состояние: берём последнюю (modified, id) из пачки
-                last_modified, last_id = rows[-1][1], str(rows[-1][0])
-                state.set_state('last_updated_at', str(last_modified))
-                state.set_state('last_id', last_id)
-                print(f"Состояние обновлено: {last_modified}, {last_id}")
+                r.delete(enrich_flag)
+                print(f"Enricher: пачка обработана и флаг {enrich_flag} снят\n")
 
 if __name__ == '__main__':
     main()

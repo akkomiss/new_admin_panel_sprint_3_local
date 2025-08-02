@@ -1,6 +1,6 @@
 from state import State, RedisStorage
 
-class PostgresExtractor:
+class PostgresProducer:
     """
     Класс для пакетного извлечения данных из таблицы Postgres с поддержкой состояния через State.
     """
@@ -35,7 +35,6 @@ class PostgresExtractor:
                 cur.execute(query, params)
                 rows = cur.fetchall()
 
-
             # Если все updated_at в пачке одинаковые и совпадают с last_updated_at — переключаемся только на id
             if rows and all(r[1] == last_updated_at for r in rows): # возвращает True если значение поля updated_at совпадает с текущим курсором last_updated_at
                 query = """
@@ -49,7 +48,6 @@ class PostgresExtractor:
                 with self.pg_conn.cursor() as cur:
                     cur.execute(query, params)
                     rows = cur.fetchall()
-
 
             return rows
             
