@@ -101,7 +101,7 @@ def main():
             is_initial_completed = state.get_state('initial_completed')
             table = config['table']
 
-            # Если НЕ film_work и initial ещё НЕ завершён — пропустить, иначе сразу работать.
+            # Если initial ещё НЕ завершён и НЕ таблица film_work — пропустить, иначе сразу работать.
             if not is_initial_completed and table != 'film_work':
                 print(f"Пропускаем таблицу {table} — ждем завершения initial для film_work.")
                 continue
@@ -115,8 +115,9 @@ def main():
                 processed = extractor.extract(r, queue_key)
                 if not processed:
                     print(f"Всё обработано для {config['table']}\n")
-                    # ставим флаг initial_completed
-                    state.set_state('initial_completed', True)
+                    # Только для film_work выставляем initial_completed!
+                    if table == 'film_work' and not is_initial_completed:
+                        state.set_state('initial_completed', True)
                     break
 
                 # Ставим флаг "пачка готова"
