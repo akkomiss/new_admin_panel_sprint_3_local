@@ -4,7 +4,6 @@ import time
 import json
 from psycopg import OperationalError
 from dotenv import load_dotenv
-
 from utils import pg_conn_context, redis_conn_context, connect_es
 from state import State, RedisStorage
 from producer import PostgresProducer
@@ -12,7 +11,6 @@ from enricher import PostgresEnricher
 from merger import PostgresMerger
 from transformer import Transformer
 from loader import ElasticsearchLoader
-
 
 def process_source(config, producers, enricher, merger, transformer, r_conn):
     """

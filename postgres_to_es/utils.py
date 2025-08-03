@@ -1,14 +1,13 @@
 import logging
 import random
 import time
+import psycopg
+
 from contextlib import contextmanager
 from functools import wraps
-
-import psycopg
 from elasticsearch import Elasticsearch, ConnectionError
 from psycopg import OperationalError, ClientCursor
 from redis import Redis
-
 
 def backoff(start_sleep_time=0.1, factor=2, border_sleep_time=10, exceptions=(Exception,), service_name="unknown_service"):
     """
@@ -46,13 +45,11 @@ def connect_redis(**kwargs):
     r.ping()
     return r
 
-
 @backoff(start_sleep_time=1, factor=2, border_sleep_time=8, exceptions=(ConnectionError,), service_name="Elasticsearch")
 def connect_es(**kwargs):
     es = Elasticsearch(**kwargs)
     es.ping()
     return es
-
 
 @contextmanager
 def pg_conn_context(**kwargs):
@@ -61,7 +58,6 @@ def pg_conn_context(**kwargs):
         yield conn
     finally:
         conn.close()
-
 
 @contextmanager
 def redis_conn_context(**kwargs):

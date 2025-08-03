@@ -1,9 +1,7 @@
 import abc
 import json
 from typing import Any, Dict
-
 from redis import Redis
-
 
 class BaseStorage(abc.ABC):
     """
@@ -19,7 +17,6 @@ class BaseStorage(abc.ABC):
     @abc.abstractmethod
     def retrieve_state(self) -> Dict[str, Any]:
         """Получить состояние из хранилища."""
-
 
 class RedisStorage(BaseStorage):
     """
@@ -44,7 +41,6 @@ class RedisStorage(BaseStorage):
             except json.JSONDecodeError:
                 return {}
         return {}
-
 
 class State:
     """

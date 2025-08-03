@@ -1,6 +1,6 @@
+import logging
 from elasticsearch import Elasticsearch, helpers, ConnectionError
 from utils import backoff
-import logging
 
 class ElasticsearchLoader:
     def __init__(self, es_conn: Elasticsearch, index_name: str):
