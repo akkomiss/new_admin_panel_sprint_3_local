@@ -8,8 +8,9 @@ class PostgresEnricher:
         'genre': ('content.genre_film_work', 'genre_id'),
     }
 
-    def __init__(self, pg_conn):
+    def __init__(self, pg_conn, chunk_size):
         self.pg_conn = pg_conn
+        self.chunk_size = chunk_size
     
     @backoff(exceptions=(OperationalError,), service_name="PostgreSQL")
     def enrich(self, source_ids, source_type):
@@ -27,6 +28,10 @@ class PostgresEnricher:
         """
         with self.pg_conn.cursor() as cur:
             cur.execute(query, [str(sid) for sid in source_ids])
-            # fetchall() возвращает список кортежей, нам нужен плоский список
-            film_work_ids = [row[0] for row in cur.fetchall()]
+            film_work_ids = []
+            while True:
+                rows = cur.fetchmany(self.chunk_size)
+                if not rows:
+                    break
+                film_work_ids.extend([row[0] for row in rows])
         return film_work_ids

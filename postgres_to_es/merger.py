@@ -2,8 +2,9 @@ from psycopg import OperationalError
 from utils import backoff
 
 class PostgresMerger:
-    def __init__(self, pg_conn):
+    def __init__(self, pg_conn, chunk_size):
         self.pg_conn = pg_conn
+        self.chunk_size = chunk_size
     
     @backoff(exceptions=(OperationalError,), service_name="PostgreSQL")
     def fetch_merged_data(self, film_work_ids):
@@ -40,6 +41,12 @@ class PostgresMerger:
         with self.pg_conn.cursor() as cur:
             cur.execute(query, [str(fw_id) for fw_id in film_work_ids])
             colnames = [desc[0] for desc in cur.description]
-            rows = [dict(zip(colnames, row)) for row in cur.fetchall()]
             
-        return rows
+            merged_data = []
+            while True:
+                rows = cur.fetchmany(self.chunk_size)
+                if not rows:
+                    break
+                merged_data.extend([dict(zip(colnames, row)) for row in rows])
+            
+        return merged_data

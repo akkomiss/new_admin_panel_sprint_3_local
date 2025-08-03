@@ -1,12 +1,11 @@
-class Transformer:
-    """
-    Класс для трансформации плоских данных из БД в структурированные документы,
-    соответствующие схеме Elasticsearch.
-    """
+from enricher import PostgresEnricher
+
+
+class PostgresTransformer:
+    def __init__(self, pg_enricher: PostgresEnricher):
+        self.pg_enricher = pg_enricher
+
     def transform_data(self, rows):
-        """
-        Принимает список строк из БД и аггрегирует их в документы фильмов.
-        """
         if not rows:
             return []
             
@@ -15,12 +14,10 @@ class Transformer:
             fw_id = str(row['fw_id'])
             if fw_id not in movies_data:
                 movies_data[fw_id] = {
-                    # Поля, которые напрямую соответствуют схеме
                     'id': fw_id,
                     'title': row['title'],
                     'description': row['description'],
                     'imdb_rating': row['rating'],
-                    # Временные хранилища для дальнейшей агрегации
                     '_genres': set(),
                     '_actors': set(),
                     '_writers': set(),
@@ -40,25 +37,16 @@ class Transformer:
                 elif role == 'director':
                     movies_data[fw_id]['_directors'].add(person_tuple)
 
-        # Финальная трансформация в формат, соответствующий схеме Elasticsearch
         final_list = []
         for movie in movies_data.values():
-            # Преобразуем сеты в нужные структуры
-            
-            # 1. Жанры: плоский список имен
             movie['genres'] = list(movie['_genres'])
-
-            # 2. Персоны: списки вложенных объектов (nested)
             movie['actors'] = [{'id': pid, 'name': pname} for pid, pname in movie['_actors']]
             movie['writers'] = [{'id': pid, 'name': pname} for pid, pname in movie['_writers']]
             movie['directors'] = [{'id': pid, 'name': pname} for pid, pname in movie['_directors']]
-
-            # 3. Имена персон: плоские списки для полнотекстового поиска
             movie['actors_names'] = [pname for _, pname in movie['_actors']]
             movie['writers_names'] = [pname for _, pname in movie['_writers']]
             movie['directors_names'] = [pname for _, pname in movie['_directors']]
 
-            # Удаляем временные поля, которых нет в схеме
             del movie['_genres']
             del movie['_actors']
             del movie['_writers']
