@@ -4,3 +4,4 @@ redis==6.2.0
 python-dotenv==1.1.1
 elasticsearch==9.1.0
 pydantic-settings==2.10.1
+pydantic==2.11.7

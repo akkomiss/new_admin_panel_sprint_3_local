@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class PostgresSettings(BaseModel):
+class PostgresSettings(BaseSettings):
     """Настройки для подключения к PostgreSQL."""
     dbname: str = Field(..., validation_alias='POSTGRES_DB')
     user: str = Field(..., validation_alias='POSTGRES_USER')
@@ -18,7 +18,7 @@ class PostgresSettings(BaseModel):
         return self.model_dump()
 
 
-class RedisSettings(BaseModel):
+class RedisSettings(BaseSettings):
     """Настройки для подключения к Redis."""
     host: str = Field(..., validation_alias='REDIS_HOST')
     port: int = Field(..., validation_alias='REDIS_PORT')
@@ -30,10 +30,10 @@ class RedisSettings(BaseModel):
         return self.model_dump()
 
 
-class ElasticsearchSettings(BaseModel):
+class ElasticsearchSettings(BaseSettings):
     """Настройки для подключения к Elasticsearch."""
-    host: str = Field('localhost', validation_alias='ELASTIC_HOST')
-    port: int = Field(9200, validation_alias='ELASTIC_PORT')
+    host: str = Field(..., validation_alias='ELASTIC_HOST')
+    port: int = Field(..., validation_alias='ELASTIC_PORT')
     index: str = 'movies'
 
 
@@ -48,10 +48,8 @@ class ProducerConfig(BaseModel):
 class AppSettings(BaseSettings):
     """Основной класс с настройками приложения."""
     model_config = SettingsConfigDict(
-        env_file='.env',
         env_nested_delimiter='__',
-        env_file_encoding='utf-8',
-        validate_default=False
+        env_file_encoding='utf-8'
     )
 
     pg: PostgresSettings = Field(default_factory=PostgresSettings)
