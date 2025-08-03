@@ -4,9 +4,9 @@ import time
 import json
 from psycopg import OperationalError
 from dotenv import load_dotenv
-from elasticsearch import Elasticsearch
 
-from utils import pg_conn_context, redis_conn_context
+
+from utils import pg_conn_context, redis_conn_context, connect_es
 from state import State, RedisStorage
 from producer import PostgresProducer
 from enricher import PostgresEnricher
@@ -89,7 +89,7 @@ def main():
         'port': os.getenv('SQL_PORT')
     }
     
-    redis_opts = {'host': 'localhost', 'port': 6379, 'db': 0, 'decode_responses': True}
+    redis_opts = {'host': os.getenv('REDIS_HOST'), 'port': os.getenv('REDIS_PORT'), 'db': 0, 'decode_responses': True}
     es_host = os.getenv('ELASTIC_HOST', 'localhost')
     es_port = int(os.getenv('ELASTIC_PORT', 9200))
     es_index = 'movies'
@@ -102,7 +102,7 @@ def main():
 
     try:
         with redis_conn_context(**redis_opts) as r_conn, \
-             Elasticsearch([f"http://{es_host}:{es_port}"]) as es_conn:
+             connect_es(hosts=[f"http://{es_host}:{es_port}"]) as es_conn:
 
             logging.info("Соединения с Redis и Elasticsearch установлены.")
             

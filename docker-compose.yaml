@@ -1,27 +1,61 @@
-version: '3'
+version: '3.8'
+
 services:
   theatre-db:
-    image: postgres:16
-    ports:
-      - "5432:5432"
+    image: postgres:13.0-alpine
+    volumes:
+      - pg_data:/var/lib/postgresql/data/
+      - ./database_dump.sql:/docker-entrypoint-initdb.d/init.sql
+    expose:
+      - "5432"
     env_file:
       - ./.env
-    volumes:
-      - ./database_dump.sql:/docker-entrypoint-initdb.d/init.sql
-  redis:  
-    image: redis:latest
-    ports:
-      - "6379:6379"
-    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:6.2-alpine
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   elasticsearch:
     image: elasticsearch:9.1.0
-    ports:
-      - "9200:9200"
     environment:
       - discovery.type=single-node
-      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
       - xpack.security.enabled=false
+    ports:
+      - "9200:9200"
     volumes:
-      - es_volume:/usr/share/elasticsearch/data
+      - es_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  etl:
+    build:
+      context: ./postgres_to_es
+    restart: on-failure
+    depends_on:
+      theatre-db:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - ./.env
+
 volumes:
-  es_volume:
+  pg_data:
+  es_data:
