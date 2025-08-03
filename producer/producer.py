@@ -21,10 +21,10 @@ class PostgresProducer:
             last_updated_at = self.state.get_state('last_updated_at') or '1970-01-01T00:00:00'
             last_id = self.state.get_state('last_id') or '00000000-0000-0000-0000-000000000000'
             
-            # Для первого запуска пробуем обычную схему:
+            # Для первого запуска пробуем обычную схему: ######### таблицу сделать параметром
             query = """
                 SELECT id, updated_at
-                FROM content.film_work
+                FROM content.film_work 
                 WHERE (updated_at > %s)
                 OR (updated_at = %s AND id > %s)
                 ORDER BY updated_at, id

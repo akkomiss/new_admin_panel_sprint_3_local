@@ -78,62 +78,68 @@ def main():
         {
             'table': 'film_work',
             'state_key': 'film_work_producer',
-            'queue_name': 'film_work_ids'
+            'queue_key': 'film_work_ids'
         },
         {
             'table': 'person',
             'state_key': 'person_producer',
-            'queue_name': 'person_ids'
+            'queue_key': 'person_ids'
         },
         {
             'table': 'genre',
             'state_key': 'genre_producer',
-            'queue_name': 'genre_ids'
+            'queue_key': 'genre_ids'
         }
     ]
 
+    
     with redis_conn_context(host='localhost', port=6379, db=0) as r, pg_conn_context(**dsl) as pg_conn:
-        for config in configs:
-            storage = RedisStorage(r, redis_key=config['state_key'])
-            state = State(storage)
+        fw_storage = RedisStorage(r, redis_key='film_work_producer')
+        fw_state = State(fw_storage)
+        while True:
+            for config in configs:
+                storage = RedisStorage(r, redis_key=config['state_key'])
+                state = State(storage)
 
-            #Проверяем, завершён ли initial для этой таблицы
-            is_initial_completed = state.get_state('initial_completed')
-            table = config['table']
+                #Проверяем, завершён ли initial для этой таблицы
+                is_initial_completed = fw_state.get_state('initial_completed')
+                table = config['table']
 
-            # Если initial ещё НЕ завершён и НЕ таблица film_work — пропустить, иначе сразу работать.
-            if not is_initial_completed and table != 'film_work':
-                print(f"Пропускаем таблицу {table} — ждем завершения initial для film_work.")
-                continue
+                # Если initial ещё НЕ завершён и НЕ таблица film_work — пропустить, иначе сразу работать.
+                if not is_initial_completed and table != 'film_work':
+                    print(f"Пропускаем таблицу {table} — ждем завершения initial для film_work.")
+                    continue
 
-            extractor = PostgresProducer(pg_conn, state, table=config['table'], batch_size=100)
-            print(f"Обрабатываем таблицу: {config['table']}")
-            queue_key = config['queue_name']
-            enrich_flag = f"enrich_ready:{queue_key}"
+                extractor = PostgresProducer(pg_conn, state, table=config['table'], batch_size=100)
+                print(f"Обрабатываем таблицу: {config['table']}")
+                queue_key = config['queue_key']
+                enrich_flag = f"enrich_ready:{queue_key}"
 
-            while True:
-                rows = extractor.extract(r, queue_key)
-                if not rows:
-                    print(f"Всё обработано для {config['table']}\n")
-                    # Только для film_work выставляем initial_completed!
-                    if table == 'film_work' and not is_initial_completed:
-                        state.set_state('initial_completed', True)
-                    break
+                while True:
+                    rows = extractor.extract(r, queue_key)
+                    if not rows:
+                        print(f"Всё обработано для {config['table']}\n")
+                        # Только для film_work выставляем initial_completed!
+                        if table == 'film_work' and not is_initial_completed:
+                            fw_state.set_state('initial_completed', True)
+                        break
 
-                # Ставим флаг "пачка готова"
-                r.set(enrich_flag, 1)
+                    # Ставим флаг "пачка готова"
+                    r.set(enrich_flag, 1)
 
-                # Ждём, пока Enricher снимет флаг
-                print(f"Producer: ждёт, когда Enricher обработает очередь {queue_key}...")
-                while r.get(enrich_flag):
-                    time.sleep(0.5)
-                print(f"Producer: Enricher обработал пачку из {queue_key}, продолжаем.")
+                    # Ждём, пока Enricher снимет флаг
+                    print(f"Producer: ждёт, когда Enricher обработает очередь {queue_key}...")
+                    while r.get(enrich_flag):
+                        time.sleep(0.5)
+                    print(f"Producer: Enricher обработал пачку из {queue_key}, продолжаем.")
 
-                # Обновляем состояние: берём последнюю (modified, id) из пачки
-                last_modified, last_id = rows[-1][1], str(rows[-1][0])
-                state.set_state('last_updated_at', str(last_modified))
-                state.set_state('last_id', last_id)
-                print(f"Состояние обновлено: {last_modified}, {last_id}")
+                    # Обновляем состояние: берём последнюю (modified, id) из пачки
+                    last_modified, last_id = rows[-1][1], str(rows[-1][0])
+                    state.set_state('last_updated_at', str(last_modified))
+                    state.set_state('last_id', last_id)
+                    print(f"Состояние обновлено: {last_modified}, {last_id}")
+                    
+            time.sleep(2)
 
 if __name__ == '__main__':
     main()

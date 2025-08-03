@@ -3,15 +3,15 @@ import logging
 import os
 import random
 import time
+import json
 
 from psycopg import OperationalError, ClientCursor
 from dotenv import load_dotenv
 from redis import Redis
 from contextlib import contextmanager
 from functools import wraps
-
 from state import State, RedisStorage
-from enricher import PostgresEnricher
+from merger import PostgresMerger
 
 def backoff(start_sleep_time=0.1, factor=2, border_sleep_time=10, exceptions=(Exception,), service_name="unknown_service"):
     def func_wrapper(func):
@@ -62,6 +62,7 @@ def main():
     # Загружаем переменные окружения из .env
     load_dotenv()
 
+
     # Параметры подключения к PostgreSQL
     dsl = {
         'dbname': os.getenv('POSTGRES_DB'),
@@ -69,21 +70,13 @@ def main():
         'password': os.getenv('POSTGRES_PASSWORD'),
         'host': os.getenv('SQL_HOST'),
         'port': os.getenv('SQL_PORT')
-    }    
+    } 
 
-     # Список конфигураций для каждой таблицы:
     configs = [
         {
-            'queue_key': 'person_ids',
-            'state_key': 'person_enricher_state',
-            'relation_field': 'person_id',
-            'target_queue': 'film_work_ids'
-        },
-        {
-            'queue_key': 'genre_ids',
-            'state_key': 'genre_enricher_state',
-            'relation_field': 'genre_id',
-            'target_queue': 'film_work_ids'
+            'queue_key': 'film_work_ids',
+            'state_key': 'film_work_merger_state',
+            'batch_size': 100
         }
     ]
 
@@ -91,29 +84,39 @@ def main():
         for config in configs:
             storage = RedisStorage(r, redis_key=config['state_key'])
             state = State(storage)
-            enricher = PostgresEnricher(
-                pg_conn,
-                state,
-                source_queue=config['queue_key'],
-                relation_field=config['relation_field'],
-                batch_size=100
+            merger = PostgresMerger(
+                pg_conn=pg_conn,
+                state=state,
+                queue_key=config['queue_key'],
+                batch_size=config.get('batch_size', 100)
             )
-
             enrich_flag = f"enrich_ready:{config['queue_key']}"
 
+            print(f"Merger: стартует для очереди {config['queue_key']}")
             while True:
-                print(f"Enricher ждёт флаг для {config['queue_key']}...")
+                print(f"Merger ждёт флаг для {config['queue_key']}...")
                 while not r.get(enrich_flag):
                     time.sleep(0.5)
 
-                processed = enricher.extract(r, config['target_queue'])
-                if not processed:
-                    print(f"Enricher: очередь {config['queue_key']} пуста, завершаем обработку.")
+                last_merged_ids = state.get_state('last_merged_ids')
+                print(f"Merger: последнее обработанное состояние: {last_merged_ids}")
+
+                rows = merger.fetch_and_merge(r)
+                if not rows:
+                    print(f"Merger: очередь {config['queue_key']} пуста, ждём новые данные...")
                     r.delete(enrich_flag)
-                    break
+                    time.sleep(2)  # Подожди пару секунд и снова попробуй
+                    continue
+                
+                # Здесь этап трансформации и загрузки в ES, если надо
+                redis_list_key = "film_work_rows_queue"
+                for row in rows:
+                    # Сериализуем row в строку JSON для хранения
+                    r.rpush(redis_list_key, json.dumps(row, default=str))
 
                 r.delete(enrich_flag)
-                print(f"Enricher: пачка обработана и флаг {enrich_flag} снят\n")
+                print(f"Merger: обработано {len(rows)} строк\n")
+
 
 if __name__ == '__main__':
     main()
