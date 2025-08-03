@@ -5,7 +5,6 @@ import json
 from psycopg import OperationalError
 from dotenv import load_dotenv
 
-
 from utils import pg_conn_context, redis_conn_context, connect_es
 from state import State, RedisStorage
 from producer import PostgresProducer
@@ -13,6 +12,7 @@ from enricher import PostgresEnricher
 from merger import PostgresMerger
 from transformer import Transformer
 from loader import ElasticsearchLoader
+
 
 def process_source(config, producers, enricher, merger, transformer, r_conn):
     """
@@ -63,7 +63,6 @@ def load_data_to_es(es_loader, r_conn, queue_name='processed_movies_queue', batc
         # Извлекаем пачку данных из Redis
         # lrange(key, 0, N-1) - взять N элементов, ltrim(key, N, -1) - обрезать список, оставив все, что после N
         records_to_load_str = r_conn.lrange(queue_name, 0, batch_size - 1)
-        
         records_to_load = [json.loads(rec) for rec in records_to_load_str]
         
         logging.info(f"Извлечено {len(records_to_load)} документов из Redis для загрузки.")

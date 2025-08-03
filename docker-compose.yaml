@@ -42,6 +42,15 @@ services:
       timeout: 10s
       retries: 10
 
+  init-elasticsearch:
+    image: curlimages/curl:7.85.0
+    volumes:
+      - ./es_schema.json:/app/es_schema.json
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    command: ["/bin/sh", "-c", "echo 'Elasticsearch is healthy. Creating index...' && curl -X PUT 'http://elasticsearch:9200/movies' -H 'Content-Type: application/json' --data-binary '@/app/es_schema.json' --fail-with-body"]
+    
   etl:
     build:
       context: ./postgres_to_es
@@ -49,8 +58,8 @@ services:
     depends_on:
       theatre-db:
         condition: service_healthy
-      elasticsearch:
-        condition: service_healthy
+      init-elasticsearch:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     env_file:
