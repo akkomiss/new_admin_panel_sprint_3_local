@@ -10,6 +10,7 @@ from state import State, RedisStorage
 from producer import PostgresProducer
 from enricher import PostgresEnricher
 from merger import PostgresMerger
+from transformer import Transformer
 
 def main():
     load_dotenv()
@@ -25,7 +26,6 @@ def main():
     
     redis_opts = {'host': 'localhost', 'port': 6379, 'db': 0, 'decode_responses': True}
     
-    # Конфигурации для каждого типа источника
     producer_configs = [
         {'source_type': 'film_work', 'table': 'content.film_work', 'state_key': 'film_work_producer', 'enrich': False},
         {'source_type': 'person', 'table': 'content.person', 'state_key': 'person_producer', 'enrich': True},
@@ -36,6 +36,9 @@ def main():
         with redis_conn_context(**redis_opts) as r_conn:
             logging.info("Соединение с Redis установлено и будет поддерживаться.")
             
+            # Инициализируем Transformer один раз, т.к. он не зависит от соединений
+            transformer = Transformer()
+
             while True:
                 try:
                     with pg_conn_context(**dsl) as p_conn:
@@ -71,15 +74,18 @@ def main():
                                 logging.warning(f"После обогащения для '{source_type}' не осталось фильмов для обработки.")
                             else:
                                 logging.info(f"-> Запуск merger для {len(film_work_ids_to_merge)} фильмов...")
-                                merged_data = merger.merge(film_work_ids_to_merge)
+                                raw_data = merger.fetch_merged_data(film_work_ids_to_merge)
                                 
-                                if merged_data:
+                                logging.info(f"-> Запуск transformer для {len(raw_data)} строк...")
+                                transformed_data = transformer.transform_data(raw_data)
+                                
+                                if transformed_data:
                                     output_queue_name = 'processed_movies_queue'
-                                    logging.info(f"Merger собрал {len(merged_data)} полных документов. Отправка в очередь '{output_queue_name}'...")
-                                    for doc in merged_data:
+                                    logging.info(f"Transformer подготовил {len(transformed_data)} документов. Отправка в очередь '{output_queue_name}'...")
+                                    for doc in transformed_data:
                                         r_conn.rpush(output_queue_name, json.dumps(doc, default=str))
                                 else:
-                                    logging.warning("Merger не вернул данных после обработки.")
+                                    logging.warning("Transformer не вернул данных после обработки.")
                             
                             last_modified, last_id = source_rows[-1][1], str(source_rows[-1][0])
                             producer.state.set_state('last_updated_at', str(last_modified))
