@@ -46,10 +46,11 @@ services:
     image: curlimages/curl:7.85.0
     volumes:
       - ./es_schema.json:/app/es_schema.json
+      - ./init-es.sh:/app/init-es.sh
     depends_on:
       elasticsearch:
         condition: service_healthy
-    command: ["/bin/sh", "-c", "echo 'Elasticsearch is healthy. Creating index...' && curl -X PUT 'http://elasticsearch:9200/movies' -H 'Content-Type: application/json' --data-binary '@/app/es_schema.json' --fail-with-body"]
+    command: ["/app/init-es.sh"]
     
   etl:
     build:
