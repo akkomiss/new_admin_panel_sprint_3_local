@@ -1,6 +1,7 @@
 import logging
 import time
 import json
+
 from psycopg import OperationalError
 from redis import Redis
 
@@ -57,7 +58,7 @@ def load_data_to_es(es_loader: ElasticsearchLoader, redis_connection: Redis, que
     Извлекает данные из очереди Redis и загружает их в Elasticsearch пачками.
     """
     logging.info(f"Проверка очереди '{queue_name}' на наличие данных для загрузки в Elasticsearch...")
-
+    
     while redis_connection.llen(queue_name) > 0:
         records_to_load_str = redis_connection.lrange(queue_name, 0, settings.batch_size - 1)
         records_to_load = [json.loads(rec) for rec in records_to_load_str]
